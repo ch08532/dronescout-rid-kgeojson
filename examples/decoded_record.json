@@ -1,0 +1,67 @@
+{
+    "kind": "rid",
+    "sensor_id": "ds240-osl",
+    "rx_time_ms": 1790000120123,
+    "rx_time": "2026-09-21T14:15:20.123Z",
+    "rssi": -60,
+    "channel": 0,
+    "mac": "60:60:1F:00:00:01",
+    "link": "BLE legacy",
+    "extra": {
+        "SN present": 1,
+        "SN valid": 1,
+        "manufacturer": "DJI",
+        "model": "Mavic 3 Enterprise"
+    },
+    "uas": {
+        "ids": [
+            {
+                "ua_type": "helicopter_or_multirotor",
+                "id_type": "serial_number",
+                "id": "SIM0OSL0000000000001"
+            }
+        ],
+        "valid": {
+            "basic_id": [
+                1,
+                0
+            ],
+            "location": 1,
+            "self_id": 1,
+            "system": 1,
+            "operator_id": 1
+        },
+        "status": "airborne",
+        "position": {
+            "lat": 60.1925799,
+            "lon": 11.1184315,
+            "alt_geo_m": 346.0,
+            "alt_baro_m": 308.0,
+            "height_m": 100.0,
+            "height_ref": "ground"
+        },
+        "velocity": {
+            "track_deg": 144.0,
+            "speed_h_ms": 7.75,
+            "speed_v_ms": 0.0
+        },
+        "accuracy": {
+            "horizontal_m": 3,
+            "vertical_m": 10,
+            "baro_m": 3,
+            "speed_ms": 1,
+            "time_s": 0.2
+        },
+        "fix_time_ms": 1790000119800,
+        "fix_time": "2026-09-21T14:15:19.800Z",
+        "self_id": "Orbit",
+        "operator_location": {
+            "type": "takeoff",
+            "lat": 60.1903067,
+            "lon": 11.1220867,
+            "alt_geo_m": 246.0,
+            "system_time": "2026-09-21T14:15:19.000Z"
+        },
+        "operator_id": "NOR-SIM-0001"
+    }
+}

@@ -25,6 +25,12 @@ pipeline:
             - mapping: root = deleted()
         - check: this.kind == "rid" && this.uas.position.or(null) != null
           processors:
+            # settings -> metadata, so kgeojson.blobl needs no env() and also runs in the Bloblang playground
+            - mapping: |
+                meta kg_geoid_m = env("GEOID_UNDULATION_M").or("0")
+                meta kg_source = env("KG_SOURCE").or("")
+                meta kg_type = env("KG_TYPE").or("contact")
+                meta kg_topic_prefix = env("KG_TOPIC_PREFIX").or("rid/kgeojson")
             - mapping: 'from "${KGEOJSON_MAP:./kgeojson.blobl}"'
         - check: this.kind == "rid"               # ID-only, no position fix: not a kgeojson position
           processors:

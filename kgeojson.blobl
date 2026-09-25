@@ -13,11 +13,25 @@
 #   course   : degrees true, 0-360
 #   timestamp: epoch ms of the drone's position fix (receive time if unknown)
 #
-# Settings (environment variables):
-#   GEOID_UNDULATION_M  geoid height at the site in metres (default 0 = no correction)
-#   KG_SOURCE           "source" shown in IRIS (default "Remote ID <sensor ID>")
-#   KG_TYPE             symbology type (default "contact")
-#   KG_TOPIC_PREFIX     MQTT topic prefix (default "rid/kgeojson" -> rid/kgeojson/<sensor>/<track key>)
+# Settings arrive as message metadata, set from environment variables by
+# rid_pipeline.yaml just before this mapping runs. This file reads no
+# environment variables itself, so it also runs in the Bento Bloblang
+# playground. Missing metadata falls back to the defaults below.
+#   @kg_geoid_m       <- GEOID_UNDULATION_M  geoid height at the site, m (default 0 = no correction)
+#   @kg_source        <- KG_SOURCE           "source" shown in IRIS (default "Remote ID <sensor ID>")
+#   @kg_type          <- KG_TYPE             symbology type (default "contact")
+#   @kg_topic_prefix  <- KG_TOPIC_PREFIX     MQTT topic prefix (default "rid/kgeojson")
+
+# ---- input checks: fail with a clear message instead of a type error ----
+root = if this.kind.catch(null) != "rid" {
+  throw("input is not a decoded Remote ID record (expected \"kind\": \"rid\" from rid_decode.py; raw sensor messages must be decoded first). See examples/decoded_record.json")
+}
+root = if this.uas.position.catch(null) == null {
+  throw("record has no valid position (uas.position is null); ID-only detections can't produce a KGeoJSON track")
+}
+root = if this.uas.ids.index(0).id.catch(null) == null && this.mac.catch(null) == null {
+  throw("record has neither a UAS ID nor a MAC address, so no trackID can be formed")
+}
 
 let uas = this.uas.or({})
 let pos = $uas.position
@@ -25,7 +39,7 @@ let vel = $uas.velocity.catch({})
 let primary = $uas.ids.or([]).index(0).catch(null)
 let uas_id = $primary.id.catch(null)
 let key = $uas_id.or(this.mac)
-let n_geoid = env("GEOID_UNDULATION_M").or("0").number()
+let n_geoid = @kg_geoid_m.or("0").number()
 
 let alt_src = if $pos.alt_geo_m != null { "HAE-geoid" } else if $pos.alt_baro_m != null { "baro" } else { null }
 let alt_msl_m = if $pos.alt_geo_m != null { $pos.alt_geo_m - $n_geoid } else { $pos.alt_baro_m }
@@ -33,8 +47,8 @@ let alt_msl_m = if $pos.alt_geo_m != null { $pos.alt_geo_m - $n_geoid } else { $
 # ---- required fields ----
 root.timestamp = $uas.fix_time_ms.catch(null).or(this.rx_time_ms)
 root.trackID = "rid:" + $key
-root.source = env("KG_SOURCE").or("Remote ID " + this.sensor_id.or("sensor"))
-root.type = env("KG_TYPE").or("contact")
+root.source = if @kg_source.or("") != "" { @kg_source } else { "Remote ID " + this.sensor_id.or("sensor") }
+root.type = @kg_type.or("contact")
 root.displayName = $key
 root.latitude = $pos.lat
 root.longitude = $pos.lon
@@ -76,5 +90,5 @@ let props = [
 ]
 root.properties = $props.filter(p -> p.values().index(0) != null).map_each(p -> p.map_each(kv -> kv.value.string()))
 
-meta out_topic = "%s/%s/%s".format(env("KG_TOPIC_PREFIX").or("rid/kgeojson"), this.sensor_id, $key)
+meta out_topic = "%s/%s/%s".format(@kg_topic_prefix.or("rid/kgeojson"), this.sensor_id, $key)
 meta kgeojson = "true"
