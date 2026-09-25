@@ -1,0 +1,15 @@
+# simulator build outputs
+sim/odid_sim
+sim/odid_sim.exe
+sim/opendroneid.h
+sim/opendroneid.c
+sim/layout.txt
+
+# local tools / runtime
+bento
+bento.exe
+*.tar.gz
+__pycache__/
+*.pyc
+.env
+certs/

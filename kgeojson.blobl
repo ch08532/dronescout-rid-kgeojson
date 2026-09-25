@@ -1,0 +1,80 @@
+# rid record (from rid_decode.py) -> IRIS KGeoJSON track message
+#
+# Follows the IRIS KGeoJSON Service ICD. Published on MQTT (primary);
+# optionally also sent as UDP datagrams (IRIS_UDP_ENABLED=true).
+# Only called for records with a valid position; ID-only detections are
+# dropped in rid_pipeline.yaml before reaching this map.
+#
+# Conversions (ICD units):
+#   altitude : feet MSL  = (WGS84 HAE m - geoid undulation N) * 3.28084
+#              N is set per site with GEOID_UNDULATION_M (metres, HAE - MSL).
+#              If HAE is missing, barometric (pressure) altitude is used instead.
+#   speed    : knots     = m/s * 1.943844
+#   course   : degrees true, 0-360
+#   timestamp: epoch ms of the drone's position fix (receive time if unknown)
+#
+# Settings (environment variables):
+#   GEOID_UNDULATION_M  geoid height at the site in metres (default 0 = no correction)
+#   KG_SOURCE           "source" shown in IRIS (default "Remote ID <sensor ID>")
+#   KG_TYPE             symbology type (default "contact")
+#   KG_TOPIC_PREFIX     MQTT topic prefix (default "rid/kgeojson" -> rid/kgeojson/<sensor>/<track key>)
+
+let uas = this.uas.or({})
+let pos = $uas.position
+let vel = $uas.velocity.catch({})
+let primary = $uas.ids.or([]).index(0).catch(null)
+let uas_id = $primary.id.catch(null)
+let key = $uas_id.or(this.mac)
+let n_geoid = env("GEOID_UNDULATION_M").or("0").number()
+
+let alt_src = if $pos.alt_geo_m != null { "HAE-geoid" } else if $pos.alt_baro_m != null { "baro" } else { null }
+let alt_msl_m = if $pos.alt_geo_m != null { $pos.alt_geo_m - $n_geoid } else { $pos.alt_baro_m }
+
+# ---- required fields ----
+root.timestamp = $uas.fix_time_ms.catch(null).or(this.rx_time_ms)
+root.trackID = "rid:" + $key
+root.source = env("KG_SOURCE").or("Remote ID " + this.sensor_id.or("sensor"))
+root.type = env("KG_TYPE").or("contact")
+root.displayName = $key
+root.latitude = $pos.lat
+root.longitude = $pos.lon
+
+# ---- optional fields (omitted when unknown) ----
+root.altitude = if $alt_msl_m != null { ($alt_msl_m * 3.28084 * 10).round() / 10 } else { deleted() }
+root.status = "active"
+root.course = if $vel.track_deg.catch(null) != null { $vel.track_deg } else { deleted() }
+root.speed = if $vel.speed_h_ms.catch(null) != null { ($vel.speed_h_ms * 1.943844 * 10).round() / 10 } else { deleted() }
+
+# ---- properties: shown as-is in the IRIS metadata panel (string values) ----
+let op = $uas.operator_location.catch(null)
+let af = this.extra.or({})
+let props = [
+  {"UAS ID": $uas_id},
+  {"ID type": $primary.id_type.catch(null)},
+  {"UA type": $primary.ua_type.catch(null)},
+  {"Second ID": $uas.ids.or([]).index(1).id.catch(null)},
+  {"Flight status": $uas.status.catch(null)},
+  {"Manufacturer": $af.manufacturer.catch(null)},
+  {"Model": $af.model.catch(null)},
+  {"Operator ID": $uas.operator_id.catch(null)},
+  {"Operator lat": $op.lat.catch(null)},
+  {"Operator lon": $op.lon.catch(null)},
+  {"Operator location type": $op.type.catch(null)},
+  {"Self ID": $uas.self_id.catch(null)},
+  {"Altitude source": $alt_src},
+  {"Altitude HAE (m)": $pos.alt_geo_m},
+  {"Altitude baro (m)": $pos.alt_baro_m},
+  {"Height (m)": $pos.height_m},
+  {"Height ref": if $pos.height_m != null { $pos.height_ref } else { null }},
+  {"Vertical rate (m/s)": $vel.speed_v_ms.catch(null)},
+  {"Horizontal accuracy (m)": $uas.accuracy.horizontal_m.catch(null)},
+  {"RSSI (dBm)": this.rssi},
+  {"Link": this.link},
+  {"MAC": this.mac},
+  {"Sensor": this.sensor_id},
+  {"Received (UTC)": this.rx_time}
+]
+root.properties = $props.filter(p -> p.values().index(0) != null).map_each(p -> p.map_each(kv -> kv.value.string()))
+
+meta out_topic = "%s/%s/%s".format(env("KG_TOPIC_PREFIX").or("rid/kgeojson"), this.sensor_id, $key)
+meta kgeojson = "true"

@@ -1,0 +1,70 @@
+# DroneScout Remote ID -> IRIS KGeoJSON over MQTT (optional UDP)
+input:
+  mqtt:
+    urls: ["${SRC_MQTT_URL:tcp://localhost:1883}"]
+    topics: ["/sensor/+/upload"]        # DroneScout default topic
+    client_id: "${SRC_CLIENT_ID:bento-rid-in}"
+    qos: 1
+
+pipeline:
+  processors:
+    # raw payload (plain or LZMA) -> JSON array of normalized records
+    - subprocess:
+        name: "${RID_PYTHON:python3}"             # on Windows: RID_PYTHON=python (or py)
+        args: ["${RID_DECODER:./rid_decode.py}"]
+        codec_send: length_prefixed_uint32_be   # binary-safe for LZMA
+        codec_recv: lines
+    - unarchive:
+        format: json_array                      # one message per record
+    - switch:
+        - check: this.kind == "error" || this.kind == "unknown" || this.error.or(null) != null
+          processors:
+            - log:
+                level: WARN
+                message: 'dropped: ${! content() }'
+            - mapping: root = deleted()
+        - check: this.kind == "rid" && this.uas.position.or(null) != null
+          processors:
+            - mapping: 'from "${KGEOJSON_MAP:./kgeojson.blobl}"'
+        - check: this.kind == "rid"               # ID-only, no position fix: not a kgeojson position
+          processors:
+            - mapping: root = deleted()
+        - processors:                           # status / sensor_location / aircraft / mobile_network -> <AUX_TOPIC_PREFIX>/<kind>/<sensor>
+            - mapping: |
+                root = this
+                meta out_topic = "%s/%s/%s".format(env("AUX_TOPIC_PREFIX").or("rid"), this.kind, this.sensor_id.or(this."sensor ID").or("unknown"))
+
+    # anything that failed a processor above is logged and dropped, never published raw
+    - catch:
+        - log:
+            level: ERROR
+            message: 'processing failed: ${! error() }'
+        - mapping: root = deleted()
+
+output:
+  switch:
+    cases:
+      # OPTIONAL: KGeoJSON tracks also as UDP datagrams to the IRIS KGeoJSON Service.
+      # Off by default; enable with IRIS_UDP_ENABLED=true.
+      - check: '@kgeojson == "true" && env("IRIS_UDP_ENABLED").or("false") == "true"'
+        continue: true
+        output:
+          socket:
+            network: udp
+            address: "${IRIS_UDP_ADDR:127.0.0.1:5000}"   # IRIS host:TrackPortNumber
+            codec: all-bytes                             # one JSON object per datagram, no delimiter
+      # KGeoJSON on MQTT can be turned off with IRIS_MQTT_ENABLED=false (e.g. UDP-only to IRIS).
+      - check: '@kgeojson == "true" && env("IRIS_MQTT_ENABLED").or("true") == "false"'
+        output:
+          drop: {}
+      # Everything else goes to MQTT (KGeoJSON tracks by default, status, aircraft, ...)
+      - output:
+          resource: mqtt_out
+
+output_resources:
+  - label: mqtt_out
+    mqtt:
+      urls: ["${DST_MQTT_URL:tcp://localhost:1883}"]
+      topic: '${! @out_topic }'
+      client_id: "${DST_CLIENT_ID:bento-rid-out}"
+      qos: 1
