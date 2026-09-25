@@ -325,9 +325,22 @@ input:
 
 `sim/` produces realistic sensor traffic using the real Open Drone ID library, so the pipeline and IRIS can be tested without a sensor or drones.
 
+### Do I need to build the C simulator?
+
+**No, not to run the default demo.** The simulator has two parts that run at different times:
+
+| Part | When it runs | What it needs |
+|---|---|---|
+| `odid_sim.c` (scenario generator) | **Offline, once**, only to create or change a scenario. Writes `sim.jsonl`. | A C compiler (gcc, or MinGW on Windows) and curl |
+| `rid_sim_publish.py` (fake sensor) | **Every demo.** Reads `sim.jsonl` and publishes it to MQTT in real time. | Python 3 and `paho-mqtt` |
+
+The default Oslo Gardermoen scenario is already generated and included as `sim/sim.jsonl`, so on any machine (Windows, Linux or macOS) you only need Python, an MQTT broker and Bento.
+
+Build and run `odid_sim` only if you want a different scenario: another airport (`--lat`, `--lon`, `--ground-msl`, `--geoid`) or a different length (`--seconds`). After regenerating, commit the new `sim.jsonl` so other machines can use it without a compiler.
+
 ### How it works
 
-1. `odid_sim.c` is compiled against `opendroneid.h`/`.c` at the same commit the DroneScout firmware uses. For each drone, every second, it encodes real 25-byte F3411 messages (BasicID, Location, System, OperatorID, SelfID), then decodes them on the receiver side with the library's own `decodeOpenDroneID()`, which is how the sensor builds `UASdata`. BLE legacy drones deliver one message type per frame (ID and operator arrive less often); the other links deliver a full set every time. It writes one JSON line per drone per second with the ground truth and the `UASdata` bytes, and prints the compiler's struct layout to `layout.txt`.
+1. `odid_sim.c` (run offline, only when generating a scenario) is compiled against `opendroneid.h`/`.c` at the same commit the DroneScout firmware uses. For each drone, every second, it encodes real 25-byte F3411 messages (BasicID, Location, System, OperatorID, SelfID), then decodes them on the receiver side with the library's own `decodeOpenDroneID()`, which is how the sensor builds `UASdata`. BLE legacy drones deliver one message type per frame (ID and operator arrive less often); the other links deliver a full set every time. It writes one JSON line per drone per second with the ground truth and the `UASdata` bytes, and prints the compiler's struct layout to `layout.txt`.
 2. `rid_sim_publish.py` acts as the sensor. Every second it publishes one message containing all drones detected in that second (like `transmit_mode 2`) to `/sensor/<id>/upload`, LZMA-compressed or plain, plus a status message every 60 s. By default it **restamps all times to the current clock** (the JSON timestamp, and the fix time and system time inside `UASdata`), so tracks are live in IRIS.
 
 ### Default scenario: Oslo Airport Gardermoen (ENGM)
@@ -348,13 +361,19 @@ Four drones around the airport reference point (60.1939 N, 11.1004 E, approximat
 
 ### Run it (Linux, macOS, WSL)
 
-A pre-generated default scenario (`sim/sim.jsonl`) is included, so you only need to build the simulator to change the scenario.
+Using the included default scenario (no build needed):
 
 ```sh
 cd sim
-sh build.sh                                  # needs gcc + curl; builds odid_sim, writes sim.jsonl + layout.txt
-pip install paho-mqtt                        # publisher only
+pip install paho-mqtt
 python3 rid_sim_publish.py sim.jsonl --broker <host> --loop     # live, real time, runs until Ctrl-C
+```
+
+Only to generate a new scenario (needs gcc + curl; overwrites `sim.jsonl`):
+
+```sh
+cd sim
+sh build.sh --lat <lat> --lon <lon> --ground-msl <m> --geoid <m>   # writes sim.jsonl + layout.txt
 ```
 
 Run the pipeline with the same geoid value the simulator used, so altitudes come out right:
@@ -376,7 +395,7 @@ Publisher options: `--sensor <id>`, `--rate <x>` (speed-up; 1 = real time), `--l
 
 ### Run it on Windows
 
-**Option 1: native Windows (no compiler needed).** Uses the pre-generated `sim/sim.jsonl`.
+**Option 1: native Windows (no compiler needed).** Uses the included `sim/sim.jsonl`; the C simulator is not built or run.
 
 1. Install Python 3 from python.org, then run `py -m pip install paho-mqtt`.
 2. Install Mosquitto for Windows from mosquitto.org, or use any MQTT broker you already have. The Mosquitto service listens on localhost:1883 by default.
@@ -402,7 +421,7 @@ Publisher options: `--sensor <id>`, `--rate <x>` (speed-up; 1 = real time), `--l
 
 6. PowerShell window 3 (check the output): `& "C:\Program Files\mosquitto\mosquitto_sub.exe" -h localhost -t "rid/kgeojson/#" -v`
 
-To change the scenario (another site, length or geoid) on Windows, build `odid_sim.exe` with MSYS2's MinGW gcc (MSVC won't work, because the simulator uses `getopt_long`). In an MSYS2 MinGW64 shell, `sh build.sh` works as-is. Alternatively, download `opendroneid.h` and `opendroneid.c` (URLs in `build.sh`), then run `gcc -O1 -o odid_sim.exe odid_sim.c opendroneid.c -lm`.
+Only if you want a different scenario (another site, length or geoid): build `odid_sim.exe` with MSYS2's MinGW gcc (MSVC won't work, because the simulator uses `getopt_long`). In an MSYS2 MinGW64 shell, `sh build.sh` works as-is. Alternatively, download `opendroneid.h` and `opendroneid.c` (URLs in `build.sh`), then run `gcc -O1 -o odid_sim.exe odid_sim.c opendroneid.c -lm`.
 
 **Option 2: WSL2.** Install Ubuntu under WSL2 and follow the Linux instructions. Everything runs unchanged.
 
@@ -457,4 +476,3 @@ To change the scenario (another site, length or geoid) on Windows, build `odid_s
 2. Validate with one real sensor capture.
 3. Set `GEOID_UNDULATION_M` for each deployment site.
 4. Optional: map ADS-B/UAT `aircraft` messages to KGeoJSON too. They already contain lat/lon, altitude, speed and track, so it's a second small mapping.
-
