@@ -432,7 +432,6 @@ To change the scenario (another site, length or geoid) on Windows, build `odid_s
 - **Real sensor data.** The layout is confirmed against the real header, but a capture from a real sensor with a real drone is still the final check. To capture: `mosquitto_sub -h <broker> -t '/sensor/#' -C 20 > capture.bin`
 - **Cross-check against the vendor subscriber.** Run `mqtt_sub.py` from the BluemarkInnovations repo against the same feed and compare IDs and positions.
 - **TLS against a live broker.**
-- **ARM64 runtime.** The struct layout is the same on ARM64, but the pipeline was only run on x86_64.
 
 ---
 
@@ -458,4 +457,4 @@ To change the scenario (another site, length or geoid) on Windows, build `odid_s
 2. Validate with one real sensor capture.
 3. Set `GEOID_UNDULATION_M` for each deployment site.
 4. Optional: map ADS-B/UAT `aircraft` messages to KGeoJSON too. They already contain lat/lon, altitude, speed and track, so it's a second small mapping.
-5. Optional: port `rid_decode.py` to a Go Bento plugin for a single static binary on edge nodes.
+
